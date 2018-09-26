@@ -2,7 +2,10 @@ import base64
 import hmac
 import hashlib
 import re
-from six.moves.urllib.parse import quote, urlparse
+try:
+    from six.moves.urllib.parse import quote, urlparse
+except ImportError:
+    pass
 from gpolyencode import GPolyEncoder
 
 """
