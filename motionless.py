@@ -1,3 +1,6 @@
+import base64
+import hmac
+import hashlib
 import re
 from six.moves.urllib.parse import quote, urlparse
 from gpolyencode import GPolyEncoder
@@ -11,12 +14,7 @@ from gpolyencode import GPolyEncoder
     For details about the GoogleStatic Map API see:
         http://code.google.com/apis/maps/documentation/staticmaps/
 
-    If you encounter problems, log an issue on github. If you have questions, drop me an
-    email at ryan.a.cox@gmail.com.
-
-"""
-
-"""
+    If you encounter problems, log an issue on github. 
 
       Copyright 2010 Ryan A Cox - ryan.a.cox@gmail.com
 
@@ -36,7 +34,7 @@ from gpolyencode import GPolyEncoder
 
 
 __author__ = "Ryan Cox <ryan.a.cox@gmail.com>"
-__version__ = "1.3.1"
+__version__ = "1.3.3"
 
 
 class Color(object):
@@ -95,15 +93,16 @@ class LatLonMarker(Marker):
 
 class Map(object):
     MAX_URL_LEN = 8192  # https://developers.google.com/maps/documentation/static-maps/intro#url-size-restriction
-    MAPTYPES = ['roadmap', 'satellite', 'hybrid', 'terrain']
-    FORMATS = ['png', 'png8', 'png32', 'gif', 'jpg', 'jpg-baseline']
-    MAX_X = 640
-    MAX_Y = 640
-    ZOOM_RANGE = list(range(1, 21))
-    SCALE_RANGE = list(range(1, 5))
 
-    def __init__(self, size_x, size_y, maptype, zoom=None, scale=1, key=None, language='en', style=None):
-        self.base_url = 'https://maps.google.com/maps/api/staticmap?'
+    def __init__(self, size_x, size_y, maptype, zoom=None, scale=1, key=None, language='en', style=None, clientid=None, secret=None, channel=None):
+        if key is not None and clientid is not None:
+            raise ValueError('Only one of key and clientid may be passed')
+        if channel is not None and clientid is None:
+            raise ValueError('Must pass clientid if channel is passed')
+        if clientid is not None and secret is None:
+            raise ValueError('Must pass secret if clientid is passed')
+        self.base_url = 'https://maps.googleapis.com'
+        self.url_path = '/maps/api/staticmap?'
         self.size_x = size_x
         self.size_y = size_y
         self.sensor = False
@@ -112,42 +111,14 @@ class Map(object):
         self.zoom = zoom
         self.scale = scale
         self.key = key
+        self.clientid = clientid
+        self.secret = secret
+        self.channel = channel
         self.language = language
         self.style = style
 
     def __str__(self):
         return self.generate_url()
-
-    def check_parameters(self):
-        if self.format not in Map.FORMATS:
-            raise ValueError(
-                "[%s] is not a valid file format. Valid formats include %s" %
-                (self.format, Map.FORMATS))
-
-        if self.maptype not in Map.MAPTYPES:
-            raise ValueError(
-                "[%s] is not a valid map type. Valid types include %s" %
-                (self.maptype, Map.MAPTYPES))
-
-        if self.size_x > Map.MAX_X or self.size_x < 1:
-            raise ValueError(
-                "[%s] is not a valid x-dimension. Must be between 1 and %s" %
-                (self.size_x, Map.MAX_X))
-
-        if self.size_y > Map.MAX_Y or self.size_y < 1:
-            raise ValueError(
-                "[%s] is not a valid y-dimension. Must be between 1 and %s" %
-                (self.size_y, Map.MAX_Y))
-
-        if self.zoom is not None and self.zoom not in Map.ZOOM_RANGE:
-            raise ValueError(
-                "[%s] is not a zoom setting. Must be between %s and %s" %
-                (self.zoom, min(Map.ZOOM_RANGE), max(Map.ZOOM_RANGE)))
-
-        if self.scale is not None and self.scale not in Map.SCALE_RANGE:
-            raise ValueError(
-                "[%s] is not a scale setting. Must be between %s and %s" %
-                (self.scale, min(Map.SCALE_RANGE), max(Map.SCALE_RANGE)))
 
     def _get_sensor(self):
         if self.sensor:
@@ -158,8 +129,19 @@ class Map(object):
     def _get_key(self):
         if self.key:
             return ''.join(['key=', self.key, '&'])
+        elif self.clientid:
+            return ''.join(['client=', self.clientid, '&'])
         else:
             return ''
+
+    def _sign(self, url):
+        if self.secret:
+            decoded_key = base64.urlsafe_b64decode(self.secret)
+            # (normalise URL before signing - fails Google's signature checks otherwise)
+            signature = hmac.new(decoded_key, url.replace('%7E', '~').encode('utf-8'), hashlib.sha1)
+            return url + '&signature=' + base64.urlsafe_b64encode(signature.digest()).decode('utf-8')
+        else:
+            return url
 
     def _check_url(self, url):
         if len(url) > Map.MAX_URL_LEN:
@@ -171,9 +153,9 @@ class Map(object):
 class CenterMap(Map):
 
     def __init__(self, address=None, lat=None, lon=None, zoom=17, size_x=400,
-                 size_y=400, maptype='roadmap', scale=1, key=None, style=None):
+                 size_y=400, maptype='roadmap', scale=1, key=None, style=None, language='en', clientid=None, secret=None, channel=None):
         Map.__init__(self, size_x=size_x, size_y=size_y, maptype=maptype,
-                     zoom=zoom, scale=scale, key=key, style=style)
+                     zoom=zoom, scale=scale, key=key, style=style, language=language, clientid=clientid, secret=secret, channel=channel)
         if address:
             self.center = quote(address)
         elif lat and lon:
@@ -181,13 +163,8 @@ class CenterMap(Map):
         else:
             self.center = "1600 Amphitheatre Parkway Mountain View, CA"
 
-    def check_parameters(self):
-        super(CenterMap, self).check_parameters()
-
     def generate_url(self):
-        self.check_parameters()
-        url = "%s%smaptype=%s&format=%s&scale=%s&center=%s&zoom=%s&size=%sx%s&sensor=%s&language=%s" % (
-            self.base_url,
+        query = "%smaptype=%s&format=%s&scale=%s&center=%s&zoom=%s&size=%sx%s&sensor=%s&language=%s" % (
             self._get_key(),
             self.maptype,
             self.format,
@@ -198,6 +175,10 @@ class CenterMap(Map):
             self.size_y,
             self._get_sensor(),
             self.language)
+        if self.channel:
+            query += '&channel=%s' % (self.channel)
+
+        url = self.base_url + self._sign(self.url_path + quote(query, safe='/&=%'))
 
         self._check_url(url)
         return url
@@ -205,8 +186,8 @@ class CenterMap(Map):
 
 class VisibleMap(Map):
 
-    def __init__(self, size_x=400, size_y=400, maptype='roadmap', scale=1, key=None, style=None):
-        Map.__init__(self, size_x=size_x, size_y=size_y, maptype=maptype, scale=scale, key=key, style=style)
+    def __init__(self, size_x=400, size_y=400, maptype='roadmap', scale=1, key=None, style=None, language='en', clientid=None, secret=None, channel=None):
+        Map.__init__(self, size_x=size_x, size_y=size_y, maptype=maptype, scale=scale, key=key, style=style, language=language, clientid=clientid, secret=secret, channel=channel)
         self.locations = []
 
     def add_address(self, address):
@@ -216,9 +197,7 @@ class VisibleMap(Map):
         self.locations.append("%s,%s" % (quote(lat), quote(lon)))
 
     def generate_url(self):
-        self.check_parameters()
-        url = "%s%smaptype=%s&format=%s&scale=%s&size=%sx%s&sensor=%s&visible=%s&language=%s" % (
-            self.base_url,
+        query = "%smaptype=%s&format=%s&scale=%s&size=%sx%s&sensor=%s&visible=%s&language=%s" % (
             self._get_key(),
             self.maptype,
             self.format,
@@ -228,8 +207,13 @@ class VisibleMap(Map):
             self._get_sensor(),
             "|".join(self.locations),
             self.language)
+        if self.channel:
+            query += '&channel=%s' % (self.channel)
+
+        url = self.base_url + self._sign(self.url_path + quote(query, safe='/&=%'))
 
         self._check_url(url)
+
         return url
 
 
@@ -240,9 +224,9 @@ class DecoratedMap(Map):
     def __init__(self, lat=None, lon=None, zoom=None, size_x=400, size_y=400,
                  maptype='roadmap', scale=1, region=False, fillcolor='green',
                  pathweight=None, pathcolor=None, key=None, style=None,
-                 simplify_threshold_meters=1.11111):
+                 simplify_threshold_meters=1.11111, language='en', clientid=None, secret=None, channel=None):
         Map.__init__(self, size_x=size_x, size_y=size_y, maptype=maptype,
-                     zoom=zoom, scale=scale, key=key, style=style)
+                     zoom=zoom, scale=scale, key=key, style=style, language=language, clientid=clientid, secret=secret, channel=channel)
         self.markers = []
         self.fillcolor = fillcolor
         self.pathweight = pathweight
@@ -260,8 +244,6 @@ class DecoratedMap(Map):
             self.center = None
 
     def check_parameters(self):
-        super(DecoratedMap, self).check_parameters()
-
         if self.region and len(self.path) < 2:
             raise ValueError(
                 "At least two path elements required if region is enabled")
@@ -282,7 +264,6 @@ class DecoratedMap(Map):
             raise ValueError(
                 "%s is not a valid path color. Must be 24 or 32 bit value or one of %s" %
                 (self.pathcolor, Color.COLORS))
-
 
     def _generate_markers(self):
         styles = set()
@@ -343,8 +324,7 @@ class DecoratedMap(Map):
 
     def generate_url(self):
         self.check_parameters()
-        url = "%s%smaptype=%s&format=%s&scale=%s&size=%sx%s&sensor=%s&language=%s" % (
-            self.base_url,
+        query = "%smaptype=%s&format=%s&scale=%s&size=%sx%s&sensor=%s&language=%s" % (
             self._get_key(),
             self.maptype,
             self.format,
@@ -355,36 +335,41 @@ class DecoratedMap(Map):
             self.language)
 
         if self.center:
-            url = "%s&center=%s" % (url, self.center)
+            query = "%s&center=%s" % (query, self.center)
 
         if self.zoom:
-            url = "%s&zoom=%s" % (url, self.zoom)
+            query = "%s&zoom=%s" % (query, self.zoom)
 
         if len(self.markers) > 0:
-            url = "%s&%s" % (url, self._generate_markers())
+            query = "%s&%s" % (query, self._generate_markers())
 
         if len(self.path) > 0:
-            url = "%s&path=" % url
+            query = "%s&path=" % query
 
             if self.pathcolor:
-                url = "%scolor:%s|" % (url, self.pathcolor)
+                query = "%scolor:%s|" % (query, self.pathcolor)
 
             if self.pathweight:
-                url = "%sweight:%s|" % (url, self.pathweight)
+                query = "%sweight:%s|" % (query, self.pathweight)
 
             if self.region:
-                url = "%sfillcolor:%s|" % (url, self.fillcolor)
+                query = "%sfillcolor:%s|" % (query, self.fillcolor)
 
-            url = "%senc:%s" % (url, quote(self._polyencode()))
+            query = "%senc:%s" % (query, quote(self._polyencode()))
 
         if self.style:
             for style_map in self.style:
-                url = "%s&style=feature:%s|element:%s|" % (
-                    url,
+                query = "%s&style=feature:%s|element:%s|" % (
+                    query,
                     (style_map['feature'] if 'feature' in style_map else 'all'),
                     (style_map['element'] if 'element' in style_map else 'all'))
                 for prop, rule in style_map['rules'].items():
-                    url = "%s%s:%s|" % (url, prop, str(rule).replace('#', '0x'))
+                    query = "%s%s:%s|" % (query, prop, str(rule).replace('#', '0x'))
+
+        if self.channel:
+            query += '&channel=%s' % (self.channel)
+
+        url = self.base_url + self._sign(self.url_path + quote(query, safe='/&=%'))
 
         self._check_url(url)
 
