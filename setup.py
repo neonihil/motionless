@@ -6,7 +6,7 @@ from metainfo import __version__
 METADATA = dict(
     name = "motionless",
     version = __version__,
-    py_modules = ['setup', 'motionless', 'gpolyencode'],
+    py_modules = ['setup', 'metainfo', 'motionless', 'gpolyencode'],
     author = 'Ryan Cox',
     author_email = 'ryan.a.cox@gmail.com',
     description = 'An easy way to generate Google Static Map URLs with Python.',
