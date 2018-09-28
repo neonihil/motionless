@@ -2,10 +2,7 @@ import base64
 import hmac
 import hashlib
 import re
-try:
-    from six.moves.urllib.parse import quote, urlparse
-except ImportError:
-    pass
+from six.moves.urllib.parse import quote, urlparse
 from gpolyencode import GPolyEncoder
 
 """
@@ -35,9 +32,9 @@ from gpolyencode import GPolyEncoder
 
 """
 
+from metainfo import __version__
 
 __author__ = "Ryan Cox <ryan.a.cox@gmail.com>"
-__version__ = "1.3.3"
 
 
 class Color(object):

@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-from motionless import __version__
+from metainfo import __version__
 
 # Distutils version
 METADATA = dict(
